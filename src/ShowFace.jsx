@@ -30,6 +30,7 @@ body{
   overscroll-behavior-y:none; -webkit-user-select:none; user-select:none;
 }
 input,textarea{ -webkit-user-select:text; user-select:text; }
+button{ font-family:inherit; color:inherit; -webkit-text-fill-color:currentColor; appearance:none; }
 .app{ min-height:100dvh; display:flex; flex-direction:column; max-width:520px; margin:0 auto; width:100%;
   padding-top:env(safe-area-inset-top); }
 .scroll{ flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch;
@@ -72,6 +73,7 @@ input,textarea{ -webkit-user-select:text; user-select:text; }
   padding:28px 0 8px; min-height:52dvh; }
 .beacon{ width:min(72vw,296px); height:min(72vw,296px); border-radius:50%; position:relative;
   background:none; border:none; display:flex; align-items:center; justify-content:center; cursor:pointer;
+  color:var(--ink); -webkit-text-fill-color:currentColor; font-family:inherit; appearance:none;
   transition:transform .28s cubic-bezier(.34,1.56,.64,1); }
 .beacon:active{ transform:scale(.955); }
 .beacon .core{ position:absolute; inset:12%; border-radius:50%; background:var(--group);
@@ -170,6 +172,14 @@ function timeLeft(e) {
   const h = Math.floor(ms / 36e5), m = Math.floor((ms % 36e5) / 6e4);
   return h > 0 ? `${h}h ${m}m left` : `${m}m left`;
 }
+const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+// Before you arrive it counts toward the time; after, it counts down.
+function status(b) {
+  if (!b) return "";
+  const start = b.started_at ? new Date(b.started_at) : null;
+  if (start && start > new Date()) return `arriving ${clock(b.started_at)}`;
+  return timeLeft(b.expires_at);
+}
 
 /* ---------------- legal sheet ---------------- */
 function LegalSheet({ doc, onClose }) {
@@ -186,14 +196,14 @@ function LegalSheet({ doc, onClose }) {
   );
 }
 
-/* ---------------- going out: type your own time ---------------- */
+/* ---------------- going out: type when you'll be there ---------------- */
 function GoingOut({ onGo, onClose }) {
   const [place, setPlace] = useState("");
-  const [time, setTime] = useState("");      // "HH:MM", typed or picked
+  const [time, setTime] = useState("");      // "HH:MM" — when you'll arrive
   const [err, setErr] = useState("");
 
   // Turn a typed clock time into a real timestamp.
-  // If the time already passed today, assume they mean tonight/tomorrow.
+  // If that time already passed today, they mean later tonight.
   const resolve = () => {
     if (!time) return null;
     const [h, m] = time.split(":").map(Number);
@@ -201,21 +211,21 @@ function GoingOut({ onGo, onClose }) {
     const d = new Date();
     d.setHours(h, m, 0, 0);
     if (d <= new Date()) d.setDate(d.getDate() + 1);
-    // sanity: nobody's light should run longer than a day
     if (d - Date.now() > 24 * 36e5) return "bad";
     return d.toISOString();
   };
 
   const go = () => {
-    const until = resolve();
-    if (until === "bad") { setErr("That time doesn't look right."); return; }
-    onGo({ place: place.trim(), until });
+    const arriving = resolve();
+    if (arriving === "bad") { setErr("That time doesn't look right."); return; }
+    onGo({ place: place.trim(), arriving });
   };
 
-  const until = resolve();
-  const preview = until && until !== "bad"
-    ? `Your light goes out at ${new Date(until).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
-    : `Your light goes out in ${BEACON_HOURS} hours`;
+  const arriving = resolve();
+  const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const preview = arriving && arriving !== "bad"
+    ? `Friends see you're heading${place.trim() ? ` to ${place.trim()}` : " out"} at ${clock(arriving)}`
+    : `Friends see you're out now${place.trim() ? ` at ${place.trim()}` : ""}`;
 
   return (
     <div className="scrim" onClick={e => e.target.classList.contains("scrim") && onClose()}>
@@ -235,17 +245,18 @@ function GoingOut({ onGo, onClose }) {
             </div>
           </div>
 
-          <div className="grouphdr" style={{ padding: "22px 16px 7px" }}>Out until</div>
+          <div className="grouphdr" style={{ padding: "22px 16px 7px" }}>Getting there at</div>
           <div className="group" style={{ margin: 0 }}>
             <div className="cell">
               <input className="fieldinput timefield" type="time" value={time}
                 onChange={e => { setErr(""); setTime(e.target.value); }} />
-              {time && <button className="navbtn" style={{ padding: 4 }} onClick={() => setTime("")}>
-                <X size={18} /></button>}
+              {time
+                ? <button className="navbtn" style={{ padding: 4 }} onClick={() => setTime("")}><X size={18} /></button>
+                : <span className="cellvalue">Now</span>}
             </div>
           </div>
           <div className="footnote" style={{ padding: "8px 16px 0" }}>
-            Type the time you'll head home. Leave it blank for the default {BEACON_HOURS} hours.
+            Type when you'll be there. Leave it blank if you're already out.
           </div>
           {err && <div className="err" style={{ padding: "0 16px" }}>{err}</div>}
 
@@ -523,14 +534,17 @@ export default function ShowFace() {
     setComposer(true);                  // not out — ask when and where
   };
 
-  const goOut = async ({ place, until }) => {
+  const goOut = async ({ place, arriving }) => {
     haptic(14);
     setComposer(false);
-    const expires = until || new Date(Date.now() + BEACON_HOURS * 36e5).toISOString();
-    if (demo) { setBeacon({ expires_at: expires, place }); return; }
+    const start = arriving || new Date().toISOString();
+    // the light stays on for BEACON_HOURS after you get there
+    const expires = new Date(new Date(start).getTime() + BEACON_HOURS * 36e5).toISOString();
+    if (demo) { setBeacon({ started_at: start, expires_at: expires, place }); return; }
     setBusy(true);
-    try { setBeacon(await lightBeacon({ place: place || null, expires_at: expires })); }
-    catch (e) { console.error(e); } finally { setBusy(false); }
+    try {
+      setBeacon(await lightBeacon({ place: place || null, started_at: start, expires_at: expires }));
+    } catch (e) { console.error(e); } finally { setBusy(false); }
   };
 
   const invite = async () => {
@@ -566,8 +580,8 @@ export default function ShowFace() {
                 {!beacon && <><span className="ring r1" /><span className="ring r2" /><span className="ring r3" /></>}
                 <div className="core">
                   {beacon ? <Check size={32} strokeWidth={2.2} /> : <Radar size={32} />}
-                  <span className="label">{beacon ? "You're out" : "Show Face"}</span>
-                  <span className="meta">{beacon ? timeLeft(beacon.expires_at) : "one tap"}</span>
+                  <span className="label">{beacon ? (beacon.started_at && new Date(beacon.started_at) > new Date() ? "On your way" : "You're out") : "Show Face"}</span>
+                  <span className="meta">{beacon ? status(beacon) : "one tap"}</span>
                   {beacon?.place && <span className="meta" style={{ marginTop: -4 }}>{beacon.place}</span>}
                 </div>
               </button>
@@ -586,7 +600,7 @@ export default function ShowFace() {
                     <span className="avatar">{initials(f.name)}<span className="dot" /></span>
                     <div className="celltext">
                       <div className="celltitle">{f.name || "Friend"}</div>
-                      <div className="cellsub">{f.place ? `${f.place} · ` : ""}{timeLeft(f.expires_at)}</div>
+                      <div className="cellsub">{f.place ? `${f.place} · ` : ""}{status(f)}</div>
                     </div>
                   </div>
                 ))}

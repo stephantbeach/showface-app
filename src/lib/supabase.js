@@ -43,11 +43,13 @@ export async function saveProfile(userId, fields) {
 /* ---------------- the beacon ---------------- */
 // One tap writes one row that expires by itself.
 
-export async function lightBeacon({ activity = null, place = null, expires_at = null } = {}) {
-  const expires = expires_at || new Date(Date.now() + BEACON_HOURS * 3600 * 1000).toISOString();
+export async function lightBeacon({ activity = null, place = null, started_at = null, expires_at = null } = {}) {
+  const start = started_at || new Date().toISOString();
+  const expires = expires_at ||
+    new Date(new Date(start).getTime() + BEACON_HOURS * 3600 * 1000).toISOString();
   const { data, error } = await supabase
     .from("beacons")
-    .insert({ activity, place, expires_at: expires })
+    .insert({ activity, place, started_at: start, expires_at: expires })
     .select()
     .single();
   if (error) throw error;
