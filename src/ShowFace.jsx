@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Radar, Check, Users, User, ChevronRight, ChevronLeft, Bell, Contact,
-  Shield, Share2, LogOut, X, MapPin,
+  Shield, Share2, LogOut, X, MapPin, Hand, Plus,
 } from "lucide-react";
 import {
   isConfigured, supabase, sendCode, verifyCode, signOut,
   getProfile, saveProfile, lightBeacon, getMyBeacon, killMyBeacon,
   friendsOut, onFriendLive, BEACON_HOURS,
+  respond, unrespond, myCircles, createCircle, lastRecap,
 } from "./lib/supabase";
 import { TERMS, PRIVACY } from "./legal";
 
@@ -156,6 +157,34 @@ button{ font-family:inherit; color:inherit; -webkit-text-fill-color:currentColor
   letter-spacing:-.4px; color:var(--ink); outline:none; padding:2px 0; min-width:0; }
 .fieldinput::placeholder{ color:var(--label3); }
 .timefield{ font-variant-numeric:tabular-nums; }
+.joins{ display:flex; align-items:center; gap:8px; margin-top:7px; }
+.jstack{ display:flex; } .jstack i{ width:20px; height:20px; border-radius:50%; background:var(--fill);
+  border:2px solid var(--group); margin-left:-7px; display:flex; align-items:center; justify-content:center;
+  font-size:9px; font-weight:700; font-style:normal; color:var(--ink2); }
+.jstack i:first-child{ margin-left:0; }
+.jtext{ font-size:12.5px; color:var(--label2); }
+.respond{ display:flex; gap:7px; flex:0 0 auto; }
+.rbtn{ padding:8px 13px; border-radius:20px; border:1px solid var(--sep2); background:var(--group);
+  font-size:13px; font-weight:600; color:var(--ink); cursor:pointer; font-family:inherit;
+  display:flex; align-items:center; gap:5px; transition:transform .12s; }
+.rbtn:active{ transform:scale(.94); }
+.rbtn.on{ background:var(--ink); color:#F2EFE7; border-color:var(--ink); }
+.rbtn.icon{ padding:8px 10px; }
+.grouptag{ display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:700;
+  text-transform:uppercase; letter-spacing:.04em; background:var(--ink); color:#F2EFE7;
+  padding:2px 8px; border-radius:20px; margin-left:7px; }
+.audience{ display:flex; gap:8px; overflow-x:auto; padding:0 16px; }
+.audience::-webkit-scrollbar{ height:0; }
+.achip{ flex:0 0 auto; padding:10px 15px; border-radius:22px; border:1px solid var(--sep2);
+  background:var(--group); font-size:14px; font-weight:500; color:var(--ink2); cursor:pointer;
+  font-family:inherit; }
+.achip.on{ background:var(--ink); color:#F2EFE7; border-color:var(--ink); font-weight:600; }
+.recapcard{ background:var(--ink); color:#F2EFE7; border-radius:18px; padding:24px; margin-top:4px; }
+.recapcard .rbig{ font-size:27px; font-weight:700; letter-spacing:-.8px; line-height:1.15; }
+.recapcard .rsub{ font-size:15px; color:rgba(242,239,231,.65); margin-top:12px; line-height:1.5; }
+.nudgecard{ margin:16px; padding:16px 18px; border-radius:14px; background:var(--group);
+  display:flex; align-items:center; gap:13px; }
+.nudgecard .nt{ font-size:15px; font-weight:600; } .nudgecard .nd{ font-size:13px; color:var(--label2); margin-top:3px; }
 .banner{ margin:16px; padding:13px 15px; border-radius:12px; background:var(--group);
   font-size:13px; color:var(--label2); line-height:1.45; }
 `;
@@ -163,9 +192,17 @@ button{ font-family:inherit; color:inherit; -webkit-text-fill-color:currentColor
 const initials = (n) => (n || "?").trim().split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase();
 const haptic = (ms = 8) => { try { navigator.vibrate?.(ms); } catch {} };
 const DEMO = [
-  { user_id: "d1", name: "Marcus Bell", place: "The Local", expires_at: new Date(Date.now() + 9e6).toISOString() },
-  { user_id: "d2", name: "Priya Raman", place: "Lakeside Café", expires_at: new Date(Date.now() + 5e6).toISOString() },
+  { id: "b1", user_id: "d1", name: "Marcus Bell", place: "The Local",
+    started_at: new Date(Date.now() + 18e5).toISOString(), expires_at: new Date(Date.now() + 9e6).toISOString(),
+    going: 2, joiners: ["Tasha", "Ben"], my_status: null },
+  { id: "b2", user_id: "d2", name: "Priya Raman", place: "Lakeside Café",
+    started_at: new Date(Date.now() - 12e5).toISOString(), expires_at: new Date(Date.now() + 5e6).toISOString(),
+    going: 0, joiners: [], my_status: null },
+  { id: "b3", user_id: "d3", name: "Dev Shah", place: "Berniece Park", circle_name: "Basketball Crew",
+    started_at: new Date(Date.now() + 36e5).toISOString(), expires_at: new Date(Date.now() + 15e6).toISOString(),
+    going: 4, joiners: ["Sam", "Mia", "Ben", "Ana"], my_status: null },
 ];
+const DEMO_CIRCLES = [{ id: "c1", name: "Friday Night People" }, { id: "c2", name: "Basketball Crew" }];
 function timeLeft(e) {
   const ms = new Date(e) - Date.now();
   if (ms <= 0) return "just ended";
@@ -196,8 +233,43 @@ function LegalSheet({ doc, onClose }) {
   );
 }
 
+/* ---------------- recap: shown once your light goes out ---------------- */
+function Recap({ data, onClose, onAgain }) {
+  const hrs = Math.max(1, Math.round((new Date(data.expires_at) - new Date(data.started_at)) / 36e5));
+  const names = (data.joiners || []).filter(Boolean);
+  return (
+    <div className="scrim" onClick={e => e.target.classList.contains("scrim") && onClose()}>
+      <div className="sheet">
+        <div className="sheethdr">
+          <span />
+          <span className="navtitle">Your light went out</span>
+          <button className="navbtn" onClick={onClose}><X size={22} /></button>
+        </div>
+        <div className="sheetbody">
+          <div className="recapcard">
+            <div className="rbig">
+              {names.length > 0
+                ? `${names.length === 1 ? names[0] : `${names.length} people`} came out with you.`
+                : "You showed face."}
+            </div>
+            <div className="rsub">
+              {data.place ? `${data.place} · ` : ""}{hrs} {hrs === 1 ? "hour" : "hours"}
+              {names.length > 0 && <><br />{names.join(", ")}</>}
+            </div>
+          </div>
+          <div style={{ padding: "22px 0 8px" }}>
+            <button className="btn primary" onClick={onAgain}>Do it again</button>
+            <button className="btn plain" style={{ marginTop: 4 }} onClick={onClose}>Done</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- going out: type when you'll be there ---------------- */
-function GoingOut({ onGo, onClose }) {
+function GoingOut({ onGo, onClose, circles }) {
+  const [circle, setCircle] = useState(null);
   const [place, setPlace] = useState("");
   const [time, setTime] = useState("");      // "HH:MM" — when you'll arrive
   const [err, setErr] = useState("");
@@ -218,14 +290,15 @@ function GoingOut({ onGo, onClose }) {
   const go = () => {
     const arriving = resolve();
     if (arriving === "bad") { setErr("That time doesn't look right."); return; }
-    onGo({ place: place.trim(), arriving });
+    onGo({ place: place.trim(), arriving, circle });
   };
 
   const arriving = resolve();
   const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const who = circle ? `${circle.name} is` : "you're";
   const preview = arriving && arriving !== "bad"
-    ? `Friends see you're heading${place.trim() ? ` to ${place.trim()}` : " out"} at ${clock(arriving)}`
-    : `Friends see you're out now${place.trim() ? ` at ${place.trim()}` : ""}`;
+    ? `Friends see ${who} heading${place.trim() ? ` to ${place.trim()}` : " out"} at ${clock(arriving)}`
+    : `Friends see ${who} out now${place.trim() ? ` at ${place.trim()}` : ""}`;
 
   return (
     <div className="scrim" onClick={e => e.target.classList.contains("scrim") && onClose()}>
@@ -236,7 +309,20 @@ function GoingOut({ onGo, onClose }) {
           <button className="navbtn" style={{ fontWeight: 600 }} onClick={go}>Go</button>
         </div>
         <div className="sheetbody">
-          <div className="grouphdr" style={{ padding: "8px 16px 7px" }}>Where (optional)</div>
+          {circles?.length > 0 && <>
+            <div className="grouphdr" style={{ padding: "8px 16px 7px" }}>Who's going out</div>
+            <div className="audience">
+              <button className={`achip ${!circle ? "on" : ""}`} onClick={() => { haptic(); setCircle(null); }}>Just me</button>
+              {circles.map(c => (
+                <button key={c.id} className={`achip ${circle?.id === c.id ? "on" : ""}`}
+                  onClick={() => { haptic(); setCircle(c); }}>{c.name}</button>
+              ))}
+            </div>
+            <div className="footnote" style={{ padding: "8px 16px 0" }}>
+              A group light says the whole crew is out — harder to ignore than one person.
+            </div>
+          </>}
+          <div className="grouphdr" style={{ padding: "22px 16px 7px" }}>Where (optional)</div>
           <div className="group" style={{ margin: 0 }}>
             <div className="cell">
               <MapPin size={18} style={{ color: "var(--label2)" }} />
@@ -465,6 +551,9 @@ export default function ShowFace() {
   const [out, setOut] = useState([]);
   const [legal, setLegal] = useState(null);
   const [composer, setComposer] = useState(false);
+  const [circles, setCircles] = useState([]);
+  const [recap, setRecap] = useState(null);
+  const [nudge, setNudge] = useState(true);
   const [perms, setPerms] = useState({ notif: false, contacts: false });
   const [busy, setBusy] = useState(false);
   const [, tick] = useState(0);
@@ -482,13 +571,14 @@ export default function ShowFace() {
   const refresh = useCallback(async () => {
     if (!session) return;
     try {
-      const [p, b, f] = await Promise.all([
-        getProfile(session.user.id), getMyBeacon(session.user.id), friendsOut(),
+      const [p, b, f, c] = await Promise.all([
+        getProfile(session.user.id), getMyBeacon(session.user.id), friendsOut(), myCircles(),
       ]);
-      setProfile(p); setBeacon(b); setOut(f);
+      setProfile(p); setBeacon(b); setOut(f); setCircles(c);
     } catch (e) { console.error(e); }
   }, [session]);
   useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { if (demo) { setOut(DEMO); setCircles(DEMO_CIRCLES); } }, [demo]);
 
   useEffect(() => {
     if (!session) return;
@@ -501,13 +591,19 @@ export default function ShowFace() {
     });
   }, [session, refresh, perms.notif]);
 
+  const endAndRecap = useCallback(async (b) => {
+    setBeacon(null);
+    if (demo) { setRecap({ ...b, joiners: [], going: 0 }); return; }
+    try { const r = await lastRecap(); if (r) setRecap(r); } catch (e) { console.error(e); }
+  }, [demo]);
+
   useEffect(() => {
     if (!beacon) return;
     const ms = new Date(beacon.expires_at) - Date.now();
-    if (ms <= 0) { setBeacon(null); return; }
-    const t = setTimeout(() => setBeacon(null), Math.min(ms, 2 ** 31 - 1));
+    if (ms <= 0) { endAndRecap(beacon); return; }
+    const t = setTimeout(() => endAndRecap(beacon), Math.min(ms, 2 ** 31 - 1));
     return () => clearTimeout(t);
-  }, [beacon]);
+  }, [beacon, endAndRecap]);
 
   const completeOnboarding = async (p) => {
     setPerms(p); setOnboarded(true);
@@ -534,17 +630,30 @@ export default function ShowFace() {
     setComposer(true);                  // not out — ask when and where
   };
 
-  const goOut = async ({ place, arriving }) => {
+  const goOut = async ({ place, arriving, circle }) => {
     haptic(14);
     setComposer(false);
     const start = arriving || new Date().toISOString();
     // the light stays on for BEACON_HOURS after you get there
     const expires = new Date(new Date(start).getTime() + BEACON_HOURS * 36e5).toISOString();
-    if (demo) { setBeacon({ started_at: start, expires_at: expires, place }); return; }
+    if (demo) { setBeacon({ id: "demo", started_at: start, expires_at: expires, place, circle_name: circle?.name }); return; }
     setBusy(true);
     try {
-      setBeacon(await lightBeacon({ place: place || null, started_at: start, expires_at: expires }));
+      setBeacon(await lightBeacon({ place: place || null, started_at: start, expires_at: expires, circle_id: circle?.id || null }));
     } catch (e) { console.error(e); } finally { setBusy(false); }
+  };
+
+  const reply = async (f, status) => {
+    haptic(12);
+    const mine = f.my_status === status;
+    if (demo) {
+      setOut(l => l.map(x => x.user_id === f.user_id
+        ? { ...x, my_status: mine ? null : status, going: (x.going || 0) + (mine ? -1 : (status === "in" ? 1 : 0)) }
+        : x));
+      return;
+    }
+    try { mine ? await unrespond(f.id) : await respond(f.id, status); await refresh(); }
+    catch (e) { console.error(e); }
   };
 
   const invite = async () => {
@@ -560,7 +669,7 @@ export default function ShowFace() {
       <Onboarding onDone={completeOnboarding} onDemo={isConfigured ? () => setDemo(true) : () => setDemo(true)} /></>);
   }
 
-  const list = demo ? DEMO : out;
+  const list = out;
   const name = profile?.name || (demo ? "You" : session?.user?.phone || "You");
   const liveCount = list.length + (beacon ? 1 : 0);
 
@@ -569,7 +678,10 @@ export default function ShowFace() {
       <style>{CSS}</style>
       <div className="app">
         {legal && <LegalSheet doc={legal} onClose={() => setLegal(null)} />}
-        {composer && <GoingOut onGo={goOut} onClose={() => setComposer(false)} />}
+        {composer && <GoingOut onGo={goOut} onClose={() => setComposer(false)}
+          circles={demo ? DEMO_CIRCLES : circles} />}
+        {recap && <Recap data={recap} onClose={() => setRecap(null)}
+          onAgain={() => { setRecap(null); setComposer(true); }} />}
 
         {tab === "out" && (
           <div className="scroll">
@@ -596,16 +708,48 @@ export default function ShowFace() {
               <div className="grouphdr">Out now</div>
               <div className="group">
                 {list.map(f => (
-                  <div className="cell" key={f.user_id}>
-                    <span className="avatar">{initials(f.name)}<span className="dot" /></span>
+                  <div className="cell" key={f.id || f.user_id}>
+                    <span className="avatar">{initials(f.circle_name || f.name)}<span className="dot" /></span>
                     <div className="celltext">
-                      <div className="celltitle">{f.name || "Friend"}</div>
-                      <div className="cellsub">{f.place ? `${f.place} · ` : ""}{status(f)}</div>
+                      <div className="celltitle">
+                        {f.circle_name || f.name || "Friend"}
+                        {f.circle_name && <span className="grouptag"><Users size={9} /> Crew</span>}
+                      </div>
+                      <div className="cellsub">
+                        {f.circle_name ? `${f.name} · ` : ""}{f.place ? `${f.place} · ` : ""}{status(f)}
+                      </div>
+                      {f.going > 0 && (
+                        <div className="joins">
+                          <div className="jstack">
+                            {(f.joiners || []).slice(0, 3).map((j, i) => <i key={i}>{(j || "?")[0]}</i>)}
+                          </div>
+                          <span className="jtext">
+                            <b className="tnum">{f.going}</b> {f.going === 1 ? "person is" : "people are"} in
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="respond">
+                      <button className={`rbtn icon ${f.my_status === "maybe" ? "on" : ""}`}
+                        onClick={() => reply(f, "maybe")} title="Maybe"><Hand size={15} /></button>
+                      <button className={`rbtn ${f.my_status === "in" ? "on" : ""}`}
+                        onClick={() => reply(f, "in")}>
+                        {f.my_status === "in" ? <><Check size={14} strokeWidth={3} /> In</> : "I'm in"}
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
             </>}
+            {!beacon && list.length === 0 && (
+              <div className="nudgecard">
+                <span className="avatar dark"><Bell size={17} /></span>
+                <div style={{ flex: 1 }}>
+                  <div className="nt">It's quiet right now</div>
+                  <div className="nd">Your crew is usually out around 8. Be the first light on.</div>
+                </div>
+              </div>
+            )}
             {demo && <div className="banner">Demo mode — nothing here is real and nothing saves.</div>}
           </div>
         )}
@@ -654,6 +798,11 @@ export default function ShowFace() {
                 <div className="celltitle">Location</div>
                 <div className="cellsub">Only while your light is on</div></span>
                 <span className="cellvalue">Beacon only</span></div>
+              <div className="cell tap" onClick={() => { haptic(); setNudge(n => !n); }}>
+                <span className="celltext">
+                  <div className="celltitle">Daily nudge</div>
+                  <div className="cellsub">One reminder at 5pm on your usual nights</div></span>
+                <span className="cellvalue">{nudge ? "On" : "Off"}</span></div>
             </div>
             <div className="footnote">We never track you in the background. Your beacon expires by itself after {BEACON_HOURS} hours.</div>
 

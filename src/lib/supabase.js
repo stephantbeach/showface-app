@@ -43,13 +43,13 @@ export async function saveProfile(userId, fields) {
 /* ---------------- the beacon ---------------- */
 // One tap writes one row that expires by itself.
 
-export async function lightBeacon({ activity = null, place = null, started_at = null, expires_at = null } = {}) {
+export async function lightBeacon({ activity = null, place = null, started_at = null, expires_at = null, circle_id = null } = {}) {
   const start = started_at || new Date().toISOString();
   const expires = expires_at ||
     new Date(new Date(start).getTime() + BEACON_HOURS * 3600 * 1000).toISOString();
   const { data, error } = await supabase
     .from("beacons")
-    .insert({ activity, place, started_at: start, expires_at: expires })
+    .insert({ activity, place, started_at: start, expires_at: expires, circle_id: circle_id || null })
     .select()
     .single();
   if (error) throw error;
@@ -116,4 +116,45 @@ export function onFriendLive(handler) {
         (payload) => handler(payload.new))
     .subscribe();
   return () => supabase.removeChannel(channel);
+}
+
+/* ---------------- responses: "I'm in" and tap-back ---------------- */
+
+export async function respond(beaconId, status /* 'in' | 'maybe' */) {
+  const { data: me } = await supabase.auth.getUser();
+  const { error } = await supabase.from("beacon_joins")
+    .upsert({ beacon_id: beaconId, user_id: me.user.id, status });
+  if (error) throw error;
+}
+
+export async function unrespond(beaconId) {
+  const { data: me } = await supabase.auth.getUser();
+  const { error } = await supabase.from("beacon_joins")
+    .delete().eq("beacon_id", beaconId).eq("user_id", me.user.id);
+  if (error) throw error;
+}
+
+/* ---------------- circles: the group light ---------------- */
+
+export async function myCircles() {
+  const { data, error } = await supabase.from("circles").select("id, name");
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createCircle(name) {
+  const { data: me } = await supabase.auth.getUser();
+  const { data, error } = await supabase.from("circles")
+    .insert({ name, owner_id: me.user.id }).select().single();
+  if (error) throw error;
+  await supabase.from("circle_members").insert({ circle_id: data.id, user_id: me.user.id });
+  return data;
+}
+
+/* ---------------- recap ---------------- */
+
+export async function lastRecap() {
+  const { data, error } = await supabase.rpc("last_recap");
+  if (error) throw error;
+  return data?.[0] || null;
 }
