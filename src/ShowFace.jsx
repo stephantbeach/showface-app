@@ -80,10 +80,25 @@ button{ font-family:inherit; color:inherit; -webkit-text-fill-color:currentColor
 .beacon .core{ position:absolute; inset:12%; border-radius:50%; background:var(--group);
   display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px;
   transition:.45s cubic-bezier(.34,1.3,.64,1); box-shadow:0 8px 30px rgba(0,0,0,.08); }
-.beacon .ring{ position:absolute; inset:0; border-radius:50%; border:1px solid rgba(20,19,18,.2); opacity:0; }
-.idle .ring{ animation:pulse 4s cubic-bezier(.25,.5,.35,1) infinite; }
-.idle .r2{ animation-delay:1.33s; } .idle .r3{ animation-delay:2.66s; }
+.beacon .ring{ position:absolute; inset:0; border-radius:50%; border:1px solid var(--ringcol); opacity:0; }
+.idle .ring{ animation:pulse var(--pulse,4s) cubic-bezier(.25,.5,.35,1) infinite; }
+.idle .r2{ animation-delay:calc(var(--pulse,4s) / 3); }
+.idle .r3{ animation-delay:calc(var(--pulse,4s) / 1.5); }
 @keyframes pulse{ 0%{ inset:32%; opacity:0 } 15%{ opacity:.38 } 100%{ inset:0; opacity:0 } }
+
+/* breathing — the app is alive before you touch it */
+.beacon .core{ animation:breathe var(--breath,6s) ease-in-out infinite; }
+@keyframes breathe{ 0%,100%{ transform:scale(1) } 50%{ transform:scale(1.022) } }
+.beacon.holding .core{ animation:none; transform:scale(.955); }
+.live .core{ animation:breathe calc(var(--breath,6s) * .8) ease-in-out infinite; }
+
+/* hold-to-light progress ring */
+.holdring{ position:absolute; inset:6%; border-radius:50%; transform:rotate(-90deg); pointer-events:none; }
+.holdring circle{ fill:none; stroke-width:2.5; }
+.holdring .track{ stroke:transparent; }
+.holdring .fill{ stroke:var(--ink); stroke-linecap:round; transition:stroke-dashoffset .06s linear; }
+.holdhint{ margin-top:16px; font-size:13px; color:var(--label3); letter-spacing:-.1px;
+  transition:opacity .3s; }
 .beacon .label{ font-size:26px; font-weight:600; letter-spacing:-.6px; }
 .beacon .meta{ font-size:13px; color:var(--label2); }
 .live .core{ inset:9%; background:var(--ink); color:#F2EFE7; box-shadow:0 20px 50px rgba(20,19,18,.3); }
@@ -185,11 +200,64 @@ button{ font-family:inherit; color:inherit; -webkit-text-fill-color:currentColor
 .nudgecard{ margin:16px; padding:16px 18px; border-radius:14px; background:var(--group);
   display:flex; align-items:center; gap:13px; }
 .nudgecard .nt{ font-size:15px; font-weight:600; } .nudgecard .nd{ font-size:13px; color:var(--label2); margin-top:3px; }
+/* the night map */
+.nightwrap{ margin:0 16px; border-radius:18px; overflow:hidden; position:relative;
+  height:min(56vw,300px); background:#0B0B0A; }
+.nightwrap .glowbg{ position:absolute; inset:0;
+  background:radial-gradient(60% 50% at 50% 55%, rgba(255,255,255,.05), transparent 70%); }
+.nightwrap .streets{ position:absolute; inset:-10%; opacity:.16;
+  background-image:linear-gradient(rgba(255,255,255,.4) .5px,transparent .5px),
+                   linear-gradient(90deg,rgba(255,255,255,.4) .5px,transparent .5px);
+  background-size:52px 52px; transform:rotate(-6deg); }
+.lightdot{ position:absolute; transform:translate(-50%,-50%); }
+.lightdot .glow{ width:11px; height:11px; border-radius:50%; background:#FFF4D6;
+  box-shadow:0 0 12px 4px rgba(255,228,150,.55), 0 0 30px 10px rgba(255,200,90,.22);
+  animation:flicker var(--f,3.4s) ease-in-out infinite; }
+@keyframes flicker{ 0%,100%{ opacity:.85; transform:scale(1) } 50%{ opacity:1; transform:scale(1.18) } }
+.lightdot.me .glow{ background:#fff; box-shadow:0 0 14px 5px rgba(255,255,255,.6), 0 0 36px 12px rgba(255,255,255,.2); }
+.lightdot .who{ position:absolute; top:15px; left:50%; transform:translateX(-50%); white-space:nowrap;
+  font-size:10.5px; color:rgba(255,255,255,.75); font-weight:500; letter-spacing:-.1px; }
+.nightcap{ position:absolute; left:14px; right:14px; bottom:12px; color:rgba(255,255,255,.62);
+  font-size:12.5px; line-height:1.4; }
+.nightcap b{ color:#fff; font-weight:600; }
 .banner{ margin:16px; padding:13px 15px; border-radius:12px; background:var(--group);
   font-size:13px; color:var(--label2); line-height:1.45; }
 `;
 
 const initials = (n) => (n || "?").trim().split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase();
+
+/* ---------- time of day: the app changes with the hour ---------- */
+function skinFor(hour) {
+  if (hour >= 5 && hour < 11)  return { name: "morning", bg: "#F5F2EA", group: "#FFFFFF", ink: "#141312",
+    label2: "rgba(60,60,67,.6)", fill: "#EFEBE2", ring: "rgba(20,19,18,.2)", dark: false };
+  if (hour >= 11 && hour < 17) return { name: "day", bg: "#F2EFE7", group: "#FFFFFF", ink: "#141312",
+    label2: "rgba(60,60,67,.6)", fill: "#EFEBE2", ring: "rgba(20,19,18,.2)", dark: false };
+  if (hour >= 17 && hour < 20) return { name: "dusk", bg: "#EDE4D6", group: "#FBF7F0", ink: "#1A1714",
+    label2: "rgba(60,54,45,.62)", fill: "#E6DCCB", ring: "rgba(26,23,20,.26)", dark: false };
+  if (hour >= 20 && hour < 23) return { name: "evening", bg: "#26231E", group: "#322E28", ink: "#F2EFE7",
+    label2: "rgba(242,239,231,.6)", fill: "#3B362E", ring: "rgba(242,239,231,.3)", dark: true };
+  return { name: "night", bg: "#131211", group: "#1E1C1A", ink: "#F2EFE7",
+    label2: "rgba(242,239,231,.55)", fill: "#292624", ring: "rgba(242,239,231,.3)", dark: true };
+}
+
+/* ---------- one sound, used once ---------- */
+let audioCtx = null;
+function thunk() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const t = audioCtx.currentTime;
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(150, t);
+    o.frequency.exponentialRampToValueAtTime(48, t + 0.34);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.42, t + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    o.connect(g).connect(audioCtx.destination);
+    o.start(t); o.stop(t + 0.55);
+  } catch {}
+}
 const haptic = (ms = 8) => { try { navigator.vibrate?.(ms); } catch {} };
 const DEMO = [
   { id: "b1", user_id: "d1", name: "Marcus Bell", place: "The Local",
@@ -228,6 +296,35 @@ function LegalSheet({ doc, onClose }) {
           <button className="navbtn" onClick={onClose}><X size={22} /></button>
         </div>
         <div className="sheetbody"><div className="legaltext">{doc === "terms" ? TERMS : PRIVACY}</div></div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- the night map ---------------- */
+function NightMap({ lights, mine }) {
+  // stable scatter so dots don't jump between renders
+  const spots = lights.map((l, i) => {
+    const seed = (l.id || l.user_id || String(i)).split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+    return { ...l, x: 14 + ((seed * 37) % 72), y: 16 + ((seed * 53) % 66), f: 2.6 + ((seed % 13) / 6) };
+  });
+  const total = lights.length + (mine ? 1 : 0);
+  return (
+    <div className="nightwrap">
+      <div className="streets" />
+      <div className="glowbg" />
+      {spots.map((l, i) => (
+        <div className="lightdot" key={l.id || i} style={{ left: `${l.x}%`, top: `${l.y}%`, "--f": `${l.f}s` }}>
+          <div className="glow" />
+          <span className="who">{(l.circle_name || l.name || "").split(" ")[0]}</span>
+        </div>
+      ))}
+      {mine && <div className="lightdot me" style={{ left: "50%", top: "52%" }}>
+        <div className="glow" /><span className="who">You</span></div>}
+      <div className="nightcap">
+        {total > 0
+          ? <><b>{total}</b> {total === 1 ? "light" : "lights"} on around you tonight</>
+          : "Dark out there. Turn yours on."}
       </div>
     </div>
   );
@@ -554,12 +651,39 @@ export default function ShowFace() {
   const [circles, setCircles] = useState([]);
   const [recap, setRecap] = useState(null);
   const [nudge, setNudge] = useState(true);
+  const [skin, setSkin] = useState(() => skinFor(new Date().getHours()));
+  const [sound, setSound] = useState(true);
+  const [hold, setHold] = useState(0);          // 0..1 progress
+  const holdTimer = useRef(null);
+  const holdStart = useRef(0);
   const [perms, setPerms] = useState({ notif: false, contacts: false });
   const [busy, setBusy] = useState(false);
   const [, tick] = useState(0);
   const notified = useRef(new Set());
 
   useEffect(() => { const t = setInterval(() => tick(n => n + 1), 30000); return () => clearInterval(t); }, []);
+
+  // the app changes with the actual hour
+  useEffect(() => {
+    const apply = () => setSkin(skinFor(new Date().getHours()));
+    apply();
+    const t = setInterval(apply, 5 * 60 * 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    const r = document.body.style;
+    r.setProperty("--bg", skin.bg); r.setProperty("--group", skin.group);
+    r.setProperty("--ink", skin.ink); r.setProperty("--label2", skin.label2);
+    r.setProperty("--fill", skin.fill); r.setProperty("--ringcol", skin.ring);
+    r.setProperty("--label3", skin.dark ? "rgba(242,239,231,.32)" : "rgba(60,60,67,.3)");
+    r.setProperty("--sep", skin.dark ? "rgba(242,239,231,.12)" : "rgba(60,60,67,.12)");
+    r.setProperty("--sep2", skin.dark ? "rgba(242,239,231,.28)" : "rgba(60,60,67,.29)");
+    r.setProperty("--ink2", skin.dark ? "rgba(242,239,231,.75)" : "#3C3C43");
+    r.setProperty("--tint", skin.ink);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", skin.bg);
+  }, [skin]);
 
   useEffect(() => {
     if (!isConfigured) return;
@@ -632,6 +756,7 @@ export default function ShowFace() {
 
   const goOut = async ({ place, arriving, circle }) => {
     haptic(14);
+    if (sound) thunk();
     setComposer(false);
     const start = arriving || new Date().toISOString();
     // the light stays on for BEACON_HOURS after you get there
@@ -641,6 +766,48 @@ export default function ShowFace() {
     try {
       setBeacon(await lightBeacon({ place: place || null, started_at: start, expires_at: expires, circle_id: circle?.id || null }));
     } catch (e) { console.error(e); } finally { setBusy(false); }
+  };
+
+  /* hold to light — a gesture with weight, not a tap */
+  const HOLD_MS = 900;
+  const beginHold = () => {
+    if (beacon) return;                       // already out: tap to end
+    holdStart.current = Date.now();
+    cancelAnimationFrame(holdTimer.current);
+    const step = () => {
+      const p = Math.min(1, (Date.now() - holdStart.current) / HOLD_MS);
+      setHold(p);
+      if (p >= 1) { setHold(0); haptic(18); if (sound) thunk(); setComposer(true); return; }
+      holdTimer.current = requestAnimationFrame(step);
+    };
+    holdTimer.current = requestAnimationFrame(step);
+  };
+  const endHold = () => { cancelAnimationFrame(holdTimer.current); setHold(0); };
+
+  /* shake to rally */
+  useEffect(() => {
+    let last = 0;
+    const onMotion = (e) => {
+      const a = e.accelerationIncludingGravity;
+      if (!a) return;
+      const force = Math.abs(a.x || 0) + Math.abs(a.y || 0) + Math.abs(a.z || 0);
+      if (force > 34 && Date.now() - last > 2500) {
+        last = Date.now();
+        haptic(20); if (sound) thunk();
+        setComposer(true);
+      }
+    };
+    window.addEventListener("devicemotion", onMotion);
+    return () => window.removeEventListener("devicemotion", onMotion);
+  }, [sound]);
+
+  const enableShake = async () => {
+    haptic();
+    try {
+      if (typeof DeviceMotionEvent?.requestPermission === "function") {
+        await DeviceMotionEvent.requestPermission();
+      }
+    } catch {}
   };
 
   const reply = async (f, status) => {
@@ -672,6 +839,8 @@ export default function ShowFace() {
   const list = out;
   const name = profile?.name || (demo ? "You" : session?.user?.phone || "You");
   const liveCount = list.length + (beacon ? 1 : 0);
+  const breath = liveCount > 0 ? Math.max(3.2, 6 - liveCount * 0.45) : 6;
+  const pulseSpeed = liveCount > 0 ? Math.max(2.4, 4 - liveCount * 0.3) : 4;
 
   return (
     <>
@@ -687,16 +856,30 @@ export default function ShowFace() {
           <div className="scroll">
             <div className="navbar"><span /><button className="navbtn" onClick={() => setTab("you")}>
               <span className="avatar dark">{initials(name)}</span></button></div>
-            <div className="stage">
-              <button className={`beacon ${beacon ? "live" : "idle"}`} onClick={tapBeacon} disabled={busy}>
+            <div className="stage" style={{ "--breath": `${breath}s`, "--pulse": `${pulseSpeed}s` }}>
+              <button className={`beacon ${beacon ? "live" : "idle"} ${hold > 0 ? "holding" : ""}`}
+                onClick={() => { if (beacon) tapBeacon(); }}
+                onPointerDown={beginHold} onPointerUp={endHold}
+                onPointerLeave={endHold} onPointerCancel={endHold}
+                onContextMenu={e => e.preventDefault()}
+                disabled={busy}>
                 {!beacon && <><span className="ring r1" /><span className="ring r2" /><span className="ring r3" /></>}
+                {hold > 0 && (
+                  <svg className="holdring" viewBox="0 0 100 100">
+                    <circle className="track" cx="50" cy="50" r="48" />
+                    <circle className="fill" cx="50" cy="50" r="48"
+                      strokeDasharray={2 * Math.PI * 48}
+                      strokeDashoffset={2 * Math.PI * 48 * (1 - hold)} />
+                  </svg>
+                )}
                 <div className="core">
                   {beacon ? <Check size={32} strokeWidth={2.2} /> : <Radar size={32} />}
                   <span className="label">{beacon ? (beacon.started_at && new Date(beacon.started_at) > new Date() ? "On your way" : "You're out") : "Show Face"}</span>
-                  <span className="meta">{beacon ? status(beacon) : "one tap"}</span>
+                  <span className="meta">{beacon ? status(beacon) : "hold to light"}</span>
                   {beacon?.place && <span className="meta" style={{ marginTop: -4 }}>{beacon.place}</span>}
                 </div>
               </button>
+              <div className="holdhint" style={{ opacity: beacon || hold > 0 ? 0 : 1 }}>press and hold</div>
               <div className="countline">
                 {liveCount > 0
                   ? <><b className="tnum">{liveCount}</b> {liveCount === 1 ? "person is" : "people are"} out right now</>
@@ -741,6 +924,12 @@ export default function ShowFace() {
                 ))}
               </div>
             </>}
+
+            {(skin.dark || liveCount > 0) && <>
+              <div className="grouphdr">Lights on tonight</div>
+              <NightMap lights={list} mine={!!beacon} />
+            </>}
+
             {!beacon && list.length === 0 && (
               <div className="nudgecard">
                 <span className="avatar dark"><Bell size={17} /></span>
