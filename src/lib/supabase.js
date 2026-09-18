@@ -86,25 +86,7 @@ export async function friendsOut() {
   return data || [];
 }
 
-export async function myFriends() {
-  const { data, error } = await supabase
-    .from("friendships")
-    .select("status, friend:profiles!friendships_friend_id_fkey(id, name, handle)")
-    .eq("status", "accepted");
-  if (error) throw error;
-  return data || [];
-}
 
-// Both directions, so a friendship is mutual once accepted.
-export async function addFriend(friendId) {
-  const { data: me } = await supabase.auth.getUser();
-  const uid = me?.user?.id;
-  const { error } = await supabase.from("friendships").insert([
-    { user_id: uid, friend_id: friendId, status: "accepted" },
-    { user_id: friendId, friend_id: uid, status: "accepted" },
-  ]);
-  if (error) throw error;
-}
 
 /* ---------------- realtime: a friend just went live ---------------- */
 
@@ -158,3 +140,56 @@ export async function lastRecap() {
   if (error) throw error;
   return data?.[0] || null;
 }
+
+/* ---------------- the map: live location ---------------- */
+
+export async function updateMyLocation({ lat, lng, status = null, ghost = false }) {
+  const { data: me } = await supabase.auth.getUser();
+  const { error } = await supabase.from("locations").upsert({
+    user_id: me.user.id, lat, lng, status, ghost, updated_at: new Date().toISOString(),
+  });
+  if (error) throw error;
+}
+
+export async function setGhost(ghost) {
+  const { data: me } = await supabase.auth.getUser();
+  const { error } = await supabase.from("locations").update({ ghost }).eq("user_id", me.user.id);
+  if (error) throw error;
+}
+
+export async function friendsOnMap() {
+  const { data, error } = await supabase.rpc("friends_on_map");
+  if (error) throw error;
+  return data || [];
+}
+
+export async function myFriendsSharing() {
+  const { data, error } = await supabase.rpc("my_friends_sharing");
+  if (error) throw error;
+  return data || [];
+}
+
+export async function setShareWith(friendId, share) {
+  const { data: me } = await supabase.auth.getUser();
+  const { error } = await supabase.from("friendships")
+    .update({ share_location: share })
+    .eq("user_id", me.user.id).eq("friend_id", friendId);
+  if (error) throw error;
+}
+
+export function onLocationChange(handler) {
+  const ch = supabase.channel("locations-live")
+    .on("postgres_changes", { event: "*", schema: "public", table: "locations" }, () => handler())
+    .subscribe();
+  return () => supabase.removeChannel(ch);
+}
+
+/* ---------------- friends: add by number, requests ---------------- */
+const rpc = async (fn, args) => { const { data, error } = await supabase.rpc(fn, args); if (error) throw error; return data; };
+export const findByPhone  = (phone)  => rpc("find_by_phone", { p: phone }).then(r => r?.[0] || null);
+export const requestFriend = (id)    => rpc("request_friend", { target: id });
+export const acceptFriend  = (id)    => rpc("accept_friend", { requester: id });
+export const removeFriend  = (id)    => rpc("remove_friend", { other: id });
+export const myRequests    = ()      => rpc("my_requests").then(r => r || []);
+export const myFriends     = ()      => rpc("my_friends").then(r => r || []);
+export const myPending     = ()      => rpc("my_pending").then(r => r || []);
